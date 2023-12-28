@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// i This is too old a solidity version which might have identified loopholes, which can be exploited. Consider upgrading
 pragma solidity ^0.7.6;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -35,17 +36,23 @@ contract PuppyRaffle is ERC721, Ownable {
     mapping(uint256 => string) public rarityToName;
 
     // Stats for the common puppy (pug)
-    string private commonImageUri = "ipfs://QmSsYRx3LpDAb1GZQm7zZ1AuHZjfbPkD6J7s9r41xu1mf8";
+    // i should be constant
+    string private commonImageUri =
+        "ipfs://QmSsYRx3LpDAb1GZQm7zZ1AuHZjfbPkD6J7s9r41xu1mf8";
     uint256 public constant COMMON_RARITY = 70;
     string private constant COMMON = "common";
 
     // Stats for the rare puppy (st. bernard)
-    string private rareImageUri = "ipfs://QmUPjADFGEKmfohdTaNcWhp7VGk26h5jXDA7v3VtTnTLcW";
+    // i should be constant
+    string private rareImageUri =
+        "ipfs://QmUPjADFGEKmfohdTaNcWhp7VGk26h5jXDA7v3VtTnTLcW";
     uint256 public constant RARE_RARITY = 25;
     string private constant RARE = "rare";
 
     // Stats for the legendary puppy (shiba inu)
-    string private legendaryImageUri = "ipfs://QmYx6GsYAKnNzZ9A6NvEKV9nf1VaDzJrqDR23Y8YSkebLU";
+    // i should be constant
+    string private legendaryImageUri =
+        "ipfs://QmYx6GsYAKnNzZ9A6NvEKV9nf1VaDzJrqDR23Y8YSkebLU";
     uint256 public constant LEGENDARY_RARITY = 5;
     string private constant LEGENDARY = "legendary";
 
@@ -57,8 +64,13 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @param _entranceFee the cost in wei to enter the raffle
     /// @param _feeAddress the address to send the fees to
     /// @param _raffleDuration the duration in seconds of the raffle
-    constructor(uint256 _entranceFee, address _feeAddress, uint256 _raffleDuration) ERC721("Puppy Raffle", "PR") {
+    constructor(
+        uint256 _entranceFee,
+        address _feeAddress,
+        uint256 _raffleDuration
+    ) ERC721("Puppy Raffle", "PR") {
         entranceFee = _entranceFee;
+        // i feeAddress should be checked for zero address
         feeAddress = _feeAddress;
         raffleDuration = _raffleDuration;
         raffleStartTime = block.timestamp;
@@ -77,15 +89,23 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice duplicate entrants are not allowed
     /// @param newPlayers the list of players to enter the raffle
     function enterRaffle(address[] memory newPlayers) public payable {
-        require(msg.value == entranceFee * newPlayers.length, "PuppyRaffle: Must send enough to enter raffle");
+        require(
+            msg.value == entranceFee * newPlayers.length,
+            "PuppyRaffle: Must send enough to enter raffle"
+        );
+        // i newPlayer.length can be stored in a local var for gas efficiency
         for (uint256 i = 0; i < newPlayers.length; i++) {
             players.push(newPlayers[i]);
         }
 
         // Check for duplicates
+        // i since the players length is not being modified, storing the length in a local var and using it as a loop condition is more gas efficient than evaluating length in each iteration
         for (uint256 i = 0; i < players.length - 1; i++) {
             for (uint256 j = i + 1; j < players.length; j++) {
-                require(players[i] != players[j], "PuppyRaffle: Duplicate player");
+                require(
+                    players[i] != players[j],
+                    "PuppyRaffle: Duplicate player"
+                );
             }
         }
         emit RaffleEnter(newPlayers);
@@ -94,12 +114,20 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @param playerIndex the index of the player to refund. You can find it externally by calling `getActivePlayerIndex`
     /// @dev This function will allow there to be blank spots in the array
     function refund(uint256 playerIndex) public {
+        // q what happens if the playerIndex >= player.length. Should we add a check here?
         address playerAddress = players[playerIndex];
-        require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
-        require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
+        require(
+            playerAddress == msg.sender,
+            "PuppyRaffle: Only the player can refund"
+        );
+        require(
+            playerAddress != address(0),
+            "PuppyRaffle: Player already refunded, or is not active"
+        );
 
         payable(msg.sender).sendValue(entranceFee);
 
+        // e Reentrancy attack possible
         players[playerIndex] = address(0);
         emit RaffleRefunded(playerAddress);
     }
@@ -107,12 +135,17 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice a way to get the index in the array
     /// @param player the address of a player in the raffle
     /// @return the index of the player in the array, if they are not active, it returns 0
-    function getActivePlayerIndex(address player) external view returns (uint256) {
+    function getActivePlayerIndex(
+        address player
+    ) external view returns (uint256) {
+        // i since the players length is not being modified, storing the length in a local var and using it as a loop condition is more gas efficient than evaluating length in each iteration
         for (uint256 i = 0; i < players.length; i++) {
             if (players[i] == player) {
                 return i;
             }
         }
+        // q why is zero being returned if player is not found? Zero represents a valid player
+        // e O should not be returned.
         return 0;
     }
 
@@ -123,10 +156,19 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @dev we reset the active players array after the winner is selected
     /// @dev we send 80% of the funds to the winner, the other 20% goes to the feeAddress
     function selectWinner() external {
-        require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
+        require(
+            block.timestamp >= raffleStartTime + raffleDuration,
+            "PuppyRaffle: Raffle not over"
+        );
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
-        uint256 winnerIndex =
-            uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.difficulty))) % players.length;
+
+        // q Can't a achieve a fav. index based on a certain timestamp.
+        // e block.timestamp, now or hash shouldn't be used as source of randomness
+        uint256 winnerIndex = uint256(
+            keccak256(
+                abi.encodePacked(msg.sender, block.timestamp, block.difficulty)
+            )
+        ) % players.length;
         address winner = players[winnerIndex];
         uint256 totalAmountCollected = players.length * entranceFee;
         uint256 prizePool = (totalAmountCollected * 80) / 100;
@@ -136,7 +178,10 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 tokenId = totalSupply();
 
         // We use a different RNG calculate from the winnerIndex to determine rarity
-        uint256 rarity = uint256(keccak256(abi.encodePacked(msg.sender, block.difficulty))) % 100;
+        // e block hashes should not be used to provide randomness
+        uint256 rarity = uint256(
+            keccak256(abi.encodePacked(msg.sender, block.difficulty))
+        ) % 100;
         if (rarity <= COMMON_RARITY) {
             tokenIdToRarity[tokenId] = COMMON_RARITY;
         } else if (rarity <= COMMON_RARITY + RARE_RARITY) {
@@ -148,17 +193,23 @@ contract PuppyRaffle is ERC721, Ownable {
         delete players;
         raffleStartTime = block.timestamp;
         previousWinner = winner;
-        (bool success,) = winner.call{value: prizePool}("");
+        (bool success, ) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
+        // e Should be minted before the token transfer since minting used pull strategy and is more reliable than external token transfer
         _safeMint(winner, tokenId);
     }
 
     /// @notice this function will withdraw the fees to the feeAddress
+    // e Only owner should be able to withdraw !!
     function withdrawFees() external {
-        require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
+        // i the condition is very strict. We can use a less than and equal to condition here.
+        require(
+            address(this).balance == uint256(totalFees),
+            "PuppyRaffle: There are currently players active!"
+        );
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
-        (bool success,) = feeAddress.call{value: feesToWithdraw}("");
+        (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
         require(success, "PuppyRaffle: Failed to withdraw fees");
     }
 
@@ -170,7 +221,10 @@ contract PuppyRaffle is ERC721, Ownable {
     }
 
     /// @notice this function will return true if the msg.sender is an active player
+    // q Is this function suppose to be called externally?
+    // i If not, it's an internal function, but never used
     function _isActivePlayer() internal view returns (bool) {
+        // i since the players length is not being modified, storing the length in a local var and using it as a loop condition is more gas efficient than evaluating length in each iteration
         for (uint256 i = 0; i < players.length; i++) {
             if (players[i] == msg.sender) {
                 return true;
@@ -180,37 +234,44 @@ contract PuppyRaffle is ERC721, Ownable {
     }
 
     /// @notice this could be a constant variable
+    // q Why is this not a constant variable?
     function _baseURI() internal pure returns (string memory) {
         return "data:application/json;base64,";
     }
 
     /// @notice this function will return the URI for the token
     /// @param tokenId the Id of the NFT
-    function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
-        require(_exists(tokenId), "PuppyRaffle: URI query for nonexistent token");
+    function tokenURI(
+        uint256 tokenId
+    ) public view virtual override returns (string memory) {
+        require(
+            _exists(tokenId),
+            "PuppyRaffle: URI query for nonexistent token"
+        );
 
         uint256 rarity = tokenIdToRarity[tokenId];
         string memory imageURI = rarityToUri[rarity];
         string memory rareName = rarityToName[rarity];
 
-        return string(
-            abi.encodePacked(
-                _baseURI(),
-                Base64.encode(
-                    bytes(
-                        abi.encodePacked(
-                            '{"name":"',
-                            name(),
-                            '", "description":"An adorable puppy!", ',
-                            '"attributes": [{"trait_type": "rarity", "value": ',
-                            rareName,
-                            '}], "image":"',
-                            imageURI,
-                            '"}'
+        return
+            string(
+                abi.encodePacked(
+                    _baseURI(),
+                    Base64.encode(
+                        bytes(
+                            abi.encodePacked(
+                                '{"name":"',
+                                name(),
+                                '", "description":"An adorable puppy!", ',
+                                '"attributes": [{"trait_type": "rarity", "value": ',
+                                rareName,
+                                '}], "image":"',
+                                imageURI,
+                                '"}'
+                            )
                         )
                     )
                 )
-            )
-        );
+            );
     }
 }

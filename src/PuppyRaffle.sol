@@ -94,6 +94,7 @@ contract PuppyRaffle is ERC721, Ownable {
             "PuppyRaffle: Must send enough to enter raffle"
         );
         // i newPlayer.length can be stored in a local var for gas efficiency
+        // @audit DoS attack
         for (uint256 i = 0; i < newPlayers.length; i++) {
             players.push(newPlayers[i]);
         }
@@ -128,7 +129,7 @@ contract PuppyRaffle is ERC721, Ownable {
 
         payable(msg.sender).sendValue(entranceFee);
 
-        // e Reentrancy attack possible
+        // @audit Reentrancy attack
         players[playerIndex] = address(0);
         emit RaffleRefunded(playerAddress);
     }

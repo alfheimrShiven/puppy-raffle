@@ -165,7 +165,8 @@ contract PuppyRaffle is ERC721, Ownable {
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
 
         // q Can't a achieve a fav. index based on a certain timestamp.
-        // e block.timestamp, now or hash shouldn't be used as source of randomness
+        // e Week Randomness error: block.timestamp, now or hash shouldn't be used as source of randomness
+        // fixes: Chainlink VRF, Commit Reveal scheme
         uint256 winnerIndex = uint256(
             keccak256(
                 abi.encodePacked(msg.sender, block.timestamp, block.difficulty)
@@ -175,12 +176,18 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 totalAmountCollected = players.length * entranceFee;
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
-        totalFees = totalFees + uint64(fee);
+
+        // @audit `totalFees` can undergo overflow post 18.45 ETH
+        // fixes: newer versions of solidity will revert these by default, use higher uints (uint256)
+
+        // @audit unsafe casting of `fee` which is a uint256 var to a lower uint64
+        totalFees = totalFees + uint64(fee); // @i this line results in 2 issues: 1. overflow, 2. unsafe casting
 
         uint256 tokenId = totalSupply();
 
         // We use a different RNG calculate from the winnerIndex to determine rarity
         // e block hashes should not be used to provide randomness
+        // @audit Week Randomness: `rarity` is not exactly random
         uint256 rarity = uint256(
             keccak256(abi.encodePacked(msg.sender, block.difficulty))
         ) % 100;
@@ -194,7 +201,10 @@ contract PuppyRaffle is ERC721, Ownable {
 
         delete players;
         raffleStartTime = block.timestamp;
-        previousWinner = winner;
+        previousWinner = winner; // e vanity variable, doesnt matter much
+
+        // q Can this result in reentrancy?
+        // @audit `winner` if a contract, would not receive the money if their fallback func. has a revert()
         (bool success, ) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
         // e Should be minted before the token transfer since minting used pull strategy and is more reliable than external token transfer
@@ -204,13 +214,15 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice this function will withdraw the fees to the feeAddress
     // e Only owner should be able to withdraw !!
     function withdrawFees() external {
-        // i the condition is very strict. We can use a less than and equal to condition here.
+        // @audit Mishandling of ETH! The condition is very strict. We can use a greater than and equal to condition here as `totalFees` will keep accumlating if not withdrawn or another contract can force value using `selfDestruct()` or directly sending value into this which can stop the withdrawals
         require(
             address(this).balance == uint256(totalFees),
             "PuppyRaffle: There are currently players active!"
         );
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
+
+        // q what if the feeAddress is bad
         (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
         require(success, "PuppyRaffle: Failed to withdraw fees");
     }

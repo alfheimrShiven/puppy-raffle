@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
-// i This is too old a solidity version which might have identified loopholes, which can be exploited. Consider upgrading
+// @audit-info This is too old a solidity version which might have identified loopholes, which can be exploited. Consider upgrading
 pragma solidity ^0.7.6;
+// @audit-info Use of floating pragma is bad!
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -22,6 +23,7 @@ contract PuppyRaffle is ERC721, Ownable {
     uint256 public immutable entranceFee;
 
     address[] public players;
+    // @audit-gas raffleDuration never changes hence can be immutable
     uint256 public raffleDuration;
     uint256 public raffleStartTime;
     address public previousWinner;
@@ -36,27 +38,28 @@ contract PuppyRaffle is ERC721, Ownable {
     mapping(uint256 => string) public rarityToName;
 
     // Stats for the common puppy (pug)
-    // i should be constant
+    // @audit-info should be constant
     string private commonImageUri =
         "ipfs://QmSsYRx3LpDAb1GZQm7zZ1AuHZjfbPkD6J7s9r41xu1mf8";
     uint256 public constant COMMON_RARITY = 70;
     string private constant COMMON = "common";
 
     // Stats for the rare puppy (st. bernard)
-    // i should be constant
+    // @audit-info should be constant
     string private rareImageUri =
         "ipfs://QmUPjADFGEKmfohdTaNcWhp7VGk26h5jXDA7v3VtTnTLcW";
     uint256 public constant RARE_RARITY = 25;
     string private constant RARE = "rare";
 
     // Stats for the legendary puppy (shiba inu)
-    // i should be constant
+    // @audit-info should be constant
     string private legendaryImageUri =
         "ipfs://QmYx6GsYAKnNzZ9A6NvEKV9nf1VaDzJrqDR23Y8YSkebLU";
     uint256 public constant LEGENDARY_RARITY = 5;
     string private constant LEGENDARY = "legendary";
 
     // Events
+    // @audit-info event fields should be marked as `indexed` to help with indexing and search
     event RaffleEnter(address[] newPlayers);
     event RaffleRefunded(address player);
     event FeeAddressChanged(address newFeeAddress);
@@ -70,7 +73,7 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 _raffleDuration
     ) ERC721("Puppy Raffle", "PR") {
         entranceFee = _entranceFee;
-        // i feeAddress should be checked for zero address
+        // @audit-info feeAddress should be checked for zero address
         feeAddress = _feeAddress;
         raffleDuration = _raffleDuration;
         raffleStartTime = block.timestamp;
@@ -93,14 +96,14 @@ contract PuppyRaffle is ERC721, Ownable {
             msg.value == entranceFee * newPlayers.length,
             "PuppyRaffle: Must send enough to enter raffle"
         );
-        // i newPlayer.length can be stored in a local var for gas efficiency
+        // @audit_info newPlayer.length can be stored in a local var for gas efficiency
         // @audit DoS attack
         for (uint256 i = 0; i < newPlayers.length; i++) {
             players.push(newPlayers[i]);
         }
 
         // Check for duplicates
-        // i since the players length is not being modified, storing the length in a local var and using it as a loop condition is more gas efficient than evaluating length in each iteration
+        // @audit-gas since the players length is not being modified, storing the length in a local var and using it as a loop condition is more gas efficient than evaluating length in each iteration
         for (uint256 i = 0; i < players.length - 1; i++) {
             for (uint256 j = i + 1; j < players.length; j++) {
                 require(
@@ -116,7 +119,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @dev This function will allow there to be blank spots in the array
     function refund(uint256 playerIndex) public {
         // e Prone to Front-running attack
-        // q what happens if the playerIndex >= player.length. Should we add a check here?
+        // @audit what happens if the playerIndex >= player.length. Should we add a check here?
         address playerAddress = players[playerIndex];
         require(
             playerAddress == msg.sender,
@@ -131,6 +134,7 @@ contract PuppyRaffle is ERC721, Ownable {
 
         // @audit Reentrancy attack
         players[playerIndex] = address(0);
+        // @audit-low Event below reentrancy attack
         emit RaffleRefunded(playerAddress);
     }
 
@@ -146,8 +150,7 @@ contract PuppyRaffle is ERC721, Ownable {
                 return i;
             }
         }
-        // q why is zero being returned if player is not found? Zero represents a valid player
-        // e O should not be returned.
+        // @audit O should not be returned.
         return 0;
     }
 
@@ -158,14 +161,14 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @dev we reset the active players array after the winner is selected
     /// @dev we send 80% of the funds to the winner, the other 20% goes to the feeAddress
     function selectWinner() external {
+        // @audit-low `block.timestamp` can be manipulated by miners
         require(
             block.timestamp >= raffleStartTime + raffleDuration,
             "PuppyRaffle: Raffle not over"
         );
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
 
-        // q Can't a achieve a fav. index based on a certain timestamp.
-        // e Week Randomness error: block.timestamp, now or hash shouldn't be used as source of randomness
+        // @audit Week Randomness error: block.timestamp, now or hash shouldn't be used as source of randomness
         // fixes: Chainlink VRF, Commit Reveal scheme
         uint256 winnerIndex = uint256(
             keccak256(
@@ -174,6 +177,10 @@ contract PuppyRaffle is ERC721, Ownable {
         ) % players.length;
         address winner = players[winnerIndex];
         uint256 totalAmountCollected = players.length * entranceFee;
+
+        // @audit-info Magic numbers are bad!
+        // uint256 public constant PRIZE_POOL_PERCENTAGE = 80
+        // uint256 public constant FEE_POOL_PERCENTAGE = 20
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
 
@@ -199,11 +206,12 @@ contract PuppyRaffle is ERC721, Ownable {
             tokenIdToRarity[tokenId] = LEGENDARY_RARITY;
         }
 
+        // @audit delete leaves address(0) slot in your players array instead of removing the array elements. THis can lead to the players array always increasing in size and can potentially lead to DOS attacks.
+        // fixes: consider swapping the index to be deleted with the last index of the players array followed by popping it out. That way no address(0) will remain and the array size will also go down.
         delete players;
         raffleStartTime = block.timestamp;
         previousWinner = winner; // e vanity variable, doesnt matter much
 
-        // q Can this result in reentrancy?
         // @audit `winner` if a contract, would not receive the money if their fallback func. has a revert()
         (bool success, ) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
@@ -214,7 +222,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice this function will withdraw the fees to the feeAddress
     // e Only owner should be able to withdraw !!
     function withdrawFees() external {
-        // @audit Mishandling of ETH! The condition is very strict. We can use a greater than and equal to condition here as `totalFees` will keep accumlating if not withdrawn or another contract can force value using `selfDestruct()` or directly sending value into this which can stop the withdrawals
+        // @audit Strict condition! The condition is very strict. We can use a greater than and equal to condition here as `totalFees` will keep accumlating if not withdrawn or another contract can force value using `selfDestruct()` or directly sending value into this which can stop the withdrawals
         require(
             address(this).balance == uint256(totalFees),
             "PuppyRaffle: There are currently players active!"
@@ -222,7 +230,7 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
 
-        // q what if the feeAddress is bad
+        // slither-disable-next-line arbitrary-send-eth
         (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
         require(success, "PuppyRaffle: Failed to withdraw fees");
     }
@@ -230,13 +238,13 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice only the owner of the contract can change the feeAddress
     /// @param newFeeAddress the new address to send fees to
     function changeFeeAddress(address newFeeAddress) external onlyOwner {
+        // i feeAddress should be checked for zero address
         feeAddress = newFeeAddress;
         emit FeeAddressChanged(newFeeAddress);
     }
 
     /// @notice this function will return true if the msg.sender is an active player
-    // q Is this function suppose to be called externally?
-    // i If not, it's an internal function, but never used
+    // @audit It's an internal function, but never used
     function _isActivePlayer() internal view returns (bool) {
         // i since the players length is not being modified, storing the length in a local var and using it as a loop condition is more gas efficient than evaluating length in each iteration
         for (uint256 i = 0; i < players.length; i++) {
@@ -248,7 +256,6 @@ contract PuppyRaffle is ERC721, Ownable {
     }
 
     /// @notice this could be a constant variable
-    // q Why is this not a constant variable?
     function _baseURI() internal pure returns (string memory) {
         return "data:application/json;base64,";
     }
@@ -289,3 +296,8 @@ contract PuppyRaffle is ERC721, Ownable {
             );
     }
 }
+
+// @audit-info Current test coverage seems to be low.
+// | File                 | % Lines        | % Statements   | % Branches     | % Funcs       |
+// |------------------------------|----------------|----------------|----------------|---------------|
+// | src/PuppyRaffle.sol  | 82.14% (46/56) | 83.54% (66/79) | 67.86% (19/28) | 77.78% (7/9)  |
